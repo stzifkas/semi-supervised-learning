@@ -73,17 +73,19 @@ class LabelPropagation:
         
         return affinity_matrix
     
-    def fit(self, X: np.ndarray, y: np.ndarray) -> 'LabelPropagation':
+    def fit(self, X: np.ndarray, y: np.ndarray, labeled_mask: np.ndarray) -> 'LabelPropagation':
         """
         Fit the label propagation model.
         
         Args:
             X: Input features
             y: Labels (use -1 for unlabeled samples)
+            labeled_mask: Boolean mask for labeled samples
             
         Returns:
             self
         """
+        self.X_train_ = X.copy()
         n_samples = X.shape[0]
         n_classes = len(np.unique(y[y != -1]))
         
@@ -96,43 +98,52 @@ class LabelPropagation:
             if label != -1:
                 Y[i, label] = 1
         
-        # Label propagation iterations
-        Y_prev = Y.copy()
+        Y_initial = Y.copy()  
         
+        # Iterative algorithm
         for iteration in range(self.max_iter):
-            # Propagate labels
-            Y_new = self.alpha * affinity_matrix @ Y_prev + (1 - self.alpha) * Y
+            Y_old = Y.copy()
+            
+            if self.alpha == 1.0:
+                Y = affinity_matrix @ Y
+                Y[labeled_mask] = Y_initial[labeled_mask]  # Hard reset
+            else:
+                # Label Spreading (soft clamping)
+                Y = self.alpha * (affinity_matrix @ Y) + (1 - self.alpha) * Y_initial
             
             # Check convergence
-            if np.linalg.norm(Y_new - Y_prev) < self.tol:
+            if np.linalg.norm(Y - Y_old) < self.tol:
                 print(f"Converged after {iteration + 1} iterations")
                 break
                 
-            Y_prev = Y_new.copy()
+            Y_old = Y.copy()
         
         # Store results
-        self.labels_ = np.argmax(Y_new, axis=1)
-        self.probabilities_ = Y_new
+        self.labels_ = np.argmax(Y, axis=1)
+        self.probabilities_ = Y
         
         return self
     
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Predict labels for new samples.
+    def predict(self, X_new):
+        """Predict on new data"""
+        if not hasattr(self, 'X_train_'):
+            raise ValueError("Model must be fitted first")
         
-        Args:
-            X: Input features
-            
-        Returns:
-            Predicted labels
-        """
-        if self.labels_ is None:
-            raise ValueError("Model must be fitted before prediction")
+        # k-NN from training data to new data
+        nbrs = NearestNeighbors(n_neighbors=5).fit(self.X_train_)
+        distances, indices = nbrs.kneighbors(X_new)
         
-        # For simplicity, we'll use nearest neighbor prediction
-        nbrs = NearestNeighbors(n_neighbors=1).fit(X)
-        distances, indices = nbrs.kneighbors(X)
-        return self.labels_[indices.flatten()]
+        # Weighted voting
+        weights = np.exp(-distances**2 / (2 * np.mean(distances)**2))
+        weights /= weights.sum(axis=1, keepdims=True)
+        
+        predictions = []
+        for i in range(len(X_new)):
+            neighbor_labels = self.labels_[indices[i]]
+            pred = np.bincount(neighbor_labels, weights=weights[i]).argmax()
+            predictions.append(pred)
+        
+        return np.array(predictions)
 
 def generate_moons_dataset(n_samples: int = 1000, noise: float = 0.1, 
                           labeled_ratio: float = 0.1, random_state: int = 42) -> Tuple[np.ndarray, np.ndarray]:
@@ -211,7 +222,7 @@ def main():
             "n_samples": 1000,
             "noise": 0.1,
             "labeled_ratio": 0.1,
-            "alpha": 0.99,
+            "alpha": 1,
             "max_iter": 1000,
             "tol": 1e-3,
             "n_neighbors": 7,
@@ -249,7 +260,7 @@ def main():
         tol=config.tol
     )
     
-    lp.fit(X, y)
+    lp.fit(X, y, labeled_mask)
     
     # Get predictions
     y_pred = lp.labels_
