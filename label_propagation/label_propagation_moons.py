@@ -115,9 +115,7 @@ class LabelPropagation:
             if np.linalg.norm(Y - Y_old) < self.tol:
                 print(f"Converged after {iteration + 1} iterations")
                 break
-                
-            Y_old = Y.copy()
-        
+                        
         # Store results
         self.labels_ = np.argmax(Y, axis=1)
         self.probabilities_ = Y
