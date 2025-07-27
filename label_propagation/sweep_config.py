@@ -11,6 +11,7 @@ def get_sweep_config():
     sweep_config = {
         'method': 'random',  # 'grid', 'random', or 'bayes'
         'name': 'label-propagation-optimization',
+        'program': 'sweep_agent.py',
         'metric': {
             'name': 'overall_accuracy',
             'goal': 'maximize'
